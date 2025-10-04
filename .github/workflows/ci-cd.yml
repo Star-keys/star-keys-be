@@ -93,6 +93,13 @@ jobs:
         env:
           EC2_USER: ec2-user
           EC2_HOST: ${{ secrets.EC2_HOST }}
+          DB_URL: ${{ secrets.DB_URL }}
+          DB_USERNAME: ${{ secrets.DB_USERNAME }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          MONGO_URI: ${{ secrets.MONGO_URI }}
+          ES_URIS: ${{ secrets.ES_URIS }}
+          ES_USERNAME: ${{ secrets.ES_USERNAME }}
+          ES_PASSWORD: ${{ secrets.ES_PASSWORD }}
         run: |
           JAR_FILE=$(ls *.jar)
           echo "Deploying $JAR_FILE to EC2..."
@@ -113,6 +120,7 @@ jobs:
           ssh -i ~/.ssh/deploy_key.pem \
               -o StrictHostKeyChecking=no \
               ${EC2_USER}@${EC2_HOST} << 'ENDSSH'
+              ${EC2_USER}@${EC2_HOST} << ENDSSH
             # Create systemd service file
             sudo tee /etc/systemd/system/starkeys.service > /dev/null <<EOF
           [Unit]
@@ -123,6 +131,13 @@ jobs:
           Type=simple
           User=ec2-user
           WorkingDirectory=/opt/starkeys
+          Environment="DB_URL=${DB_URL}"
+          Environment="DB_USERNAME=${DB_USERNAME}"
+          Environment="DB_PASSWORD=${DB_PASSWORD}"
+          Environment="MONGO_URI=${MONGO_URI}"
+          Environment="ES_URIS=${ES_URIS}"
+          Environment="ES_USERNAME=${ES_USERNAME}"
+          Environment="ES_PASSWORD=${ES_PASSWORD}"
           ExecStart=/usr/bin/java -jar /opt/starkeys/app.jar --spring.profiles.active=prod
           Restart=on-failure
           RestartSec=10
