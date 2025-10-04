@@ -67,11 +67,19 @@ All commits must follow the conventional commit format:
 
 **Valid types**: `init`, `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`, `perf`, `ci`, `build`, `revert`
 
-**Examples**:
+**Note**: Types must be in English, but descriptions can be in English or Korean.
+
+**Examples (English)**:
 - `feat: add user authentication`
 - `fix: resolve database connection timeout`
 - `docs: update API documentation`
 - `refactor(auth): simplify token validation`
+
+**Examples (Korean)**:
+- `feat: 사용자 인증 추가`
+- `fix: 데이터베이스 연결 타임아웃 해결`
+- `docs: API 문서 업데이트`
+- `refactor(auth): 토큰 검증 로직 단순화`
 
 ## Repository Information
 
