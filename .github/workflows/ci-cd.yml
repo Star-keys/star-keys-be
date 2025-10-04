@@ -152,11 +152,11 @@ jobs:
           echo "Raw outputs:"
           echo "$OUTPUTS" | jq '.'
           
-          # instance_public_ip output 추출
-          EC2_IP=$(echo "$OUTPUTS" | jq -r '.data[] | select(.attributes.name=="instance_public_ip") | .attributes.value')
+          # app_server_public_ip output 추출
+          EC2_IP=$(echo "$OUTPUTS" | jq -r '.data[] | select(.attributes.name=="app_server_public_ip") | .attributes.value')
           
           if [ -z "$EC2_IP" ] || [ "$EC2_IP" == "null" ]; then
-            echo "❌ Failed to get instance_public_ip from Terraform outputs"
+            echo "❌ Failed to get app_server_public_ip from Terraform outputs"
             echo "Available outputs:"
             echo "$OUTPUTS" | jq -r '.data[].attributes.name'
             exit 1
