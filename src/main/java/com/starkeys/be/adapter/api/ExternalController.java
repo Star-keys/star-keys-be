@@ -1,0 +1,33 @@
+package com.starkeys.be.adapter.api;
+
+import com.starkeys.be.application.service.ExternalService;
+import com.starkeys.be.common.response.ApiResponse;
+import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@RequiredArgsConstructor
+@RequestMapping("/external")
+@RestController
+public class ExternalController {
+    private final ExternalService externalService;
+
+    //  일반 검색 - 필터
+    @GetMapping("/papers")
+    public ApiResponse getPapers() {
+        return new ApiResponse<>(true, "success", null, null);
+    }
+
+    //  그래프
+    @GetMapping("/graph")
+    public ApiResponse getGraph() {
+        return new ApiResponse<>(true, "success", null, null);
+    }
+
+    //  상세페이지
+    @GetMapping("/paper")
+    public ApiResponse getPaper() {
+        return new ApiResponse<>(true, "success", null, null);
+    }
+}
