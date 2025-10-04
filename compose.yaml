@@ -7,3 +7,17 @@ services:
       - 'POSTGRES_USER=starkeys'
     ports:
       - '5432:5432'
+
+  mongo:
+    image: 'mongo:latest'
+    ports:
+      - '27017:27017'
+
+  elasticsearch:
+    image: 'elasticsearch:8.10.4'
+    environment:
+      - 'discovery.type=single-node'
+      - 'xpack.security.enabled=false'
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ports:
+      - '9200:9200'

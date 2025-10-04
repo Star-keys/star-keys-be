@@ -21,6 +21,9 @@ repositories {
 
 dependencies {
     implementation("org.springframework.boot:spring-boot-starter-web")
+    implementation("org.springframework.boot:spring-boot-starter-data-jpa")
+    implementation("org.springframework.boot:spring-boot-starter-data-elasticsearch")
+    implementation("org.springframework.boot:spring-boot-starter-data-mongodb")
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     runtimeOnly("org.postgresql:postgresql")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
@@ -33,6 +36,15 @@ dependencies {
     annotationProcessor("org.projectlombok:lombok")
     testCompileOnly("org.projectlombok:lombok")
     testAnnotationProcessor("org.projectlombok:lombok")
+
+    implementation("io.github.openfeign.querydsl:querydsl-jpa:6.11")
+    annotationProcessor("io.github.openfeign.querydsl:querydsl-apt:6.11:jakarta")
+
+    testImplementation(platform("org.testcontainers:testcontainers-bom:1.19.8"))
+    testImplementation("org.testcontainers:junit-jupiter")
+    testImplementation("org.testcontainers:postgresql")
+    testImplementation("org.testcontainers:mongodb")
+    testImplementation("org.testcontainers:elasticsearch")
 }
 
 tasks.withType<Test> {
