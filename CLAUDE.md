@@ -7,6 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This is a Spring Boot 3.5.7 backend application built with Java 21 and Gradle. The project uses:
 - Spring Boot Web for REST APIs
 - PostgreSQL as the database (configured as runtime dependency)
+- Lombok for reducing boilerplate code
 - JUnit Platform for testing
 
 ## Build & Development Commands
