@@ -119,7 +119,6 @@ jobs:
           # Create systemd service and deploy
           ssh -i ~/.ssh/deploy_key.pem \
               -o StrictHostKeyChecking=no \
-              ${EC2_USER}@${EC2_HOST} << 'ENDSSH'
               ${EC2_USER}@${EC2_HOST} << ENDSSH
             # Create systemd service file
             sudo tee /etc/systemd/system/starkeys.service > /dev/null <<EOF
