@@ -7,14 +7,6 @@ terraform {
       version = "~> 5.0"
     }
   }
-
-  cloud {
-    organization = "star-keys-backend"
-
-    workspaces {
-      name = "star-keys-be"
-    }
-  }
 }
 
 provider "aws" {
@@ -88,7 +80,7 @@ resource "aws_security_group" "app_server" {
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]  # TODO: Restrict to your IP
+    cidr_blocks = ["0.0.0.0/0"]
   }
 
   # Spring Boot Application
@@ -97,14 +89,6 @@ resource "aws_security_group" "app_server" {
     to_port     = 8080
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  # PostgreSQL (from app server only)
-  ingress {
-    from_port = 5432
-    to_port   = 5432
-    protocol  = "tcp"
-    self      = true
   }
 
   # Outbound
@@ -152,23 +136,6 @@ resource "aws_instance" "app_server" {
 
               # Install Java 21
               yum install -y java-21-amazon-corretto
-
-              # Install PostgreSQL
-              amazon-linux-extras install postgresql14 -y
-              yum install -y postgresql-server postgresql-contrib
-
-              # Initialize and start PostgreSQL
-              postgresql-setup initdb
-              systemctl start postgresql
-              systemctl enable postgresql
-
-              # Configure PostgreSQL
-              sudo -u postgres psql -c "CREATE USER starkeys WITH PASSWORD 'secret';"
-              sudo -u postgres psql -c "CREATE DATABASE starkeys OWNER starkeys;"
-
-              # Allow local connections
-              echo "host    all             all             127.0.0.1/32            md5" >> /var/lib/pgsql/data/pg_hba.conf
-              systemctl restart postgresql
 
               # Create app directory
               mkdir -p /opt/starkeys

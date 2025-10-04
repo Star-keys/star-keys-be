@@ -6,10 +6,10 @@
 
 ### 기술 스택
 - **클라우드**: AWS (VPC, EC2, EIP)
-- **IaC**: Terraform Cloud
+- **IaC**: Terraform (로컬)
 - **배포 자동화**: Ansible
 - **CI/CD**: GitHub Actions
-- **데이터베이스**: PostgreSQL (EC2 내부)
+- **런타임**: Java 21 (Amazon Corretto)
 
 ## 🏗️ 인프라 아키텍처
 
@@ -23,9 +23,8 @@
 │  │  ┌──────────────────────────────┐  │    │
 │  │  │   EC2 Instance (t3.small)    │  │    │
 │  │  │                              │  │    │
-│  │  │  - Java 21                   │  │    │
+│  │  │  - Java 21 (Corretto)        │  │    │
 │  │  │  - Spring Boot App (8080)    │  │    │
-│  │  │  - PostgreSQL (5432)         │  │    │
 │  │  │                              │  │    │
 │  │  │  Elastic IP                  │  │    │
 │  │  └──────────────────────────────┘  │    │
@@ -38,41 +37,39 @@
 
 ## 🚀 초기 설정
 
-### 1. Terraform Cloud 설정
+### 1. AWS CLI 설정
 
-1. [Terraform Cloud](https://app.terraform.io/) 계정 생성
-2. Organization 생성
-3. Workspace 생성: `star-keys-be`
-4. `terraform/main.tf`에서 organization 이름 수정:
-   ```hcl
-   cloud {
-     organization = "YOUR_TF_CLOUD_ORG"  # 본인의 organization으로 변경
-     workspaces {
-       name = "star-keys-be"
-     }
-   }
-   ```
+```bash
+# AWS CLI 설치 (macOS)
+brew install awscli
 
-### 2. AWS 자격 증명 설정
+# AWS 자격 증명 설정
+aws configure
+# AWS Access Key ID 입력
+# AWS Secret Access Key 입력
+# Default region: ap-northeast-2
+# Default output format: json
+```
 
-Terraform Cloud Workspace에 환경 변수 추가:
-- `AWS_ACCESS_KEY_ID`: AWS Access Key
-- `AWS_SECRET_ACCESS_KEY`: AWS Secret Key (Sensitive로 설정)
-
-### 3. SSH 키 페어 생성
+### 2. SSH 키 페어 생성
 
 ```bash
 # SSH 키 페어 생성
 ssh-keygen -t rsa -b 4096 -f ~/.ssh/star-keys-deployer -C "star-keys-deployer"
 
-# Public Key 복사
+# Public Key 확인
 cat ~/.ssh/star-keys-deployer.pub
 ```
 
-Terraform Cloud Workspace에 변수 추가:
-- Key: `ssh_public_key`
-- Value: (위에서 복사한 public key)
-- Sensitive: ✓
+### 3. Terraform 변수 설정
+
+`terraform/terraform.tfvars` 파일 생성:
+
+```hcl
+ssh_public_key = "ssh-rsa AAAA... (위에서 복사한 public key)"
+```
+
+⚠️ **중요**: `terraform.tfvars` 파일은 민감한 정보를 포함하므로 `.gitignore`에 추가되어 있습니다.
 
 ### 4. GitHub Secrets 설정
 
@@ -83,7 +80,7 @@ GitHub Repository → Settings → Secrets and variables → Actions에 추가:
 | `AWS_ACCESS_KEY_ID` | AWS Access Key | IAM 사용자 키 |
 | `AWS_SECRET_ACCESS_KEY` | AWS Secret Key | IAM 사용자 시크릿 키 |
 | `SSH_PRIVATE_KEY` | EC2 접속용 Private Key | `cat ~/.ssh/star-keys-deployer` |
-| `TF_API_TOKEN` | Terraform Cloud API Token | Terraform Cloud에서 생성 |
+| `SSH_PUBLIC_KEY` | EC2 접속용 Public Key | `cat ~/.ssh/star-keys-deployer.pub` |
 
 ## 🛠️ 인프라 배포
 
@@ -92,17 +89,17 @@ GitHub Repository → Settings → Secrets and variables → Actions에 추가:
 ```bash
 cd terraform
 
-# Terraform Cloud 로그인
-terraform login
-
 # 초기화
 terraform init
 
 # 계획 확인
 terraform plan
 
-# 인프라 생성
+# 인프라 생성 (승인 필요)
 terraform apply
+
+# 또는 자동 승인
+terraform apply -auto-approve
 ```
 
 생성되는 리소스:
@@ -110,11 +107,10 @@ terraform apply
 - ✅ Public Subnet (10.0.1.0/24)
 - ✅ Internet Gateway
 - ✅ Route Table
-- ✅ Security Group (SSH, HTTP 8080, PostgreSQL 5432)
+- ✅ Security Group (SSH 22, HTTP 8080)
 - ✅ EC2 Instance (t3.small, Amazon Linux 2023)
 - ✅ Elastic IP
-- ✅ Java 21 설치
-- ✅ PostgreSQL 설치 및 설정
+- ✅ Java 21 (Amazon Corretto) 설치
 
 ### 배포 후 확인
 
@@ -158,16 +154,19 @@ ssh -i ~/.ssh/star-keys-deployer ec2-user@<ELASTIC_IP>
 ### 배포 스크립트 구성
 
 **`ansible/playbooks/deploy.yml`**:
-1. 애플리케이션 디렉토리 생성
-2. 기존 서비스 중지
-3. JAR 파일 복사
-4. systemd 서비스 파일 생성
-5. 애플리케이션 시작
-6. 헬스 체크
+1. Java 21 설치 확인
+2. 애플리케이션 디렉토리 생성
+3. 기존 서비스 중지
+4. JAR 파일 복사
+5. systemd 서비스 파일 생성
+6. 애플리케이션 시작
 
 ### 수동 배포
 
 ```bash
+# JAR 파일 빌드
+./gradlew bootJar
+
 # EC2 인스턴스에 수동 배포
 ansible-playbook \
   -i ansible/inventory/aws_ec2.yml \
@@ -179,8 +178,8 @@ ansible-playbook \
 ## 🔐 보안 고려사항
 
 ### 현재 설정
-- ⚠️ SSH 포트가 모든 IP에 열려있음
-- ⚠️ PostgreSQL 비밀번호가 코드에 하드코딩됨
+- ⚠️ SSH 포트가 모든 IP에 열려있음 (0.0.0.0/0)
+- ⚠️ HTTP 포트 8080이 모든 IP에 열려있음
 
 ### 프로덕션 권장사항
 
@@ -195,17 +194,17 @@ ansible-playbook \
    }
    ```
 
-2. **시크릿 관리**:
-   - AWS Secrets Manager 사용
-   - 환경 변수로 민감 정보 주입
-
-3. **HTTPS 설정**:
+2. **HTTPS 설정**:
    - ALB + ACM으로 SSL/TLS 인증서 적용
    - 또는 Let's Encrypt + Nginx 리버스 프록시
 
+3. **시크릿 관리**:
+   - AWS Secrets Manager 또는 Parameter Store 사용
+   - 환경 변수로 민감 정보 주입
+
 4. **데이터베이스**:
-   - RDS PostgreSQL 사용 권장
-   - 백업 설정
+   - 외부 데이터베이스(RDS) 사용 권장
+   - 자동 백업 설정
    - Multi-AZ 구성
 
 ## 📊 모니터링
@@ -226,14 +225,14 @@ sudo journalctl -u starkeys-backend -f
 sudo journalctl -u starkeys-backend -n 100
 ```
 
-### 헬스 체크
+### 애플리케이션 확인
 
 ```bash
-# 로컬에서
-curl http://<ELASTIC_IP>:8080/actuator/health
+# 로컬에서 접속 테스트
+curl http://<ELASTIC_IP>:8080
 
-# 서버에서
-curl http://localhost:8080/actuator/health
+# 서버에서 포트 확인
+ss -tlnp | grep 8080
 ```
 
 ## 🧹 리소스 정리
@@ -250,19 +249,19 @@ terraform destroy
 ## 📝 체크리스트
 
 ### 배포 전 확인사항
-- [ ] Terraform Cloud organization 설정 완료
-- [ ] AWS 자격 증명 설정 완료
+- [ ] AWS CLI 설치 및 자격 증명 설정 완료
+- [ ] Terraform 설치 완료
 - [ ] SSH 키 페어 생성 완료
+- [ ] `terraform/terraform.tfvars` 파일 생성 완료
 - [ ] GitHub Secrets 등록 완료
-- [ ] `terraform/main.tf`에서 organization 이름 수정
 
 ### 배포 후 확인사항
 - [ ] EC2 인스턴스 실행 중
 - [ ] Elastic IP 할당 완료
 - [ ] SSH 접속 가능
-- [ ] PostgreSQL 실행 중
+- [ ] Java 21 설치 확인 (`java -version`)
 - [ ] 애플리케이션 정상 동작
-- [ ] 헬스 체크 응답 정상
+- [ ] 포트 8080 리스닝 확인
 
 ## 🆘 트러블슈팅
 
@@ -280,11 +279,11 @@ aws ec2 describe-instances --filters "Name=tag:Application,Values=starkeys-backe
 # 로그 확인
 sudo journalctl -u starkeys-backend -n 100
 
-# PostgreSQL 상태 확인
-sudo systemctl status postgresql
+# Java 버전 확인
+java -version
 
-# 데이터베이스 연결 테스트
-sudo -u postgres psql -c "\l"
+# JAR 파일 확인
+ls -lh /opt/starkeys/application.jar
 ```
 
 ### 3. GitHub Actions 배포 실패

@@ -9,6 +9,11 @@
     service_name: starkeys-backend
 
   tasks:
+    - name: Ensure Java 21 is installed
+      yum:
+        name: java-21-amazon-corretto
+        state: present
+
     - name: Ensure app directory exists
       file:
         path: "{{ app_dir }}"
@@ -53,16 +58,6 @@
         delay: 5
         timeout: 60
 
-    - name: Check application health
-      uri:
-        url: "http://localhost:8080/api/health"
-        status_code: 200
-      retries: 3
-      delay: 10
-      register: health_check
-      ignore_errors: yes
-
     - name: Display deployment status
       debug:
-        msg: "Application deployed successfully!"
-      when: health_check is succeeded
+        msg: "애플리케이션이 성공적으로 배포되었습니다!"

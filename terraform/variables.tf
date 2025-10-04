@@ -37,7 +37,7 @@ variable "instance_type" {
 variable "ami_id" {
   description = "AMI ID for EC2 instance (Amazon Linux 2023)"
   type        = string
-  default     = "ami-0c9c942bd7bf113a2"  # Amazon Linux 2023 in ap-northeast-2
+  default     = "ami-099099dff4384719c"  # Amazon Linux 2023 in ap-northeast-2
 }
 
 variable "ssh_public_key" {
