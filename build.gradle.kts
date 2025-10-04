@@ -39,12 +39,6 @@ dependencies {
 
     implementation("io.github.openfeign.querydsl:querydsl-jpa:6.11")
     annotationProcessor("io.github.openfeign.querydsl:querydsl-apt:6.11:jakarta")
-
-    testImplementation(platform("org.testcontainers:testcontainers-bom:1.19.8"))
-    testImplementation("org.testcontainers:junit-jupiter")
-    testImplementation("org.testcontainers:postgresql")
-    testImplementation("org.testcontainers:mongodb")
-    testImplementation("org.testcontainers:elasticsearch")
 }
 
 tasks.withType<Test> {
