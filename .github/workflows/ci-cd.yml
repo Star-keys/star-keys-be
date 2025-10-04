@@ -183,9 +183,9 @@ jobs:
           RETRY_COUNT=0
 
           while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-            if curl -f -s http://${EC2_HOST}:8080/actuator/health > /dev/null 2>&1; then
+            if curl -f -s http://${EC2_HOST}:8080/api/health > /dev/null 2>&1; then
               echo "✅ Health check passed!"
-              curl -s http://${EC2_HOST}:8080/actuator/health | jq .
+              curl -s http://${EC2_HOST}:8080/api/health | jq .
               exit 0
             fi
 
@@ -195,7 +195,7 @@ jobs:
           done
 
           echo "⚠️  Health check failed after $MAX_RETRIES attempts"
-          echo "Application may still be starting up. Check manually: http://${EC2_HOST}:8080/actuator/health"
+          echo "Application may still be starting up. Check manually: http://${EC2_HOST}:8080/api/health"
           exit 0
 
       - name: Deployment Summary
