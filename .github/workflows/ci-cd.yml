@@ -9,6 +9,8 @@ on:
 env:
   JAVA_VERSION: '21'
   AWS_REGION: ap-northeast-2
+  TF_CLOUD_ORGANIZATION: 'star-keys-backend'
+  TF_WORKSPACE: 'star-keys-be'
 
 jobs:
   test:
@@ -67,6 +69,7 @@ jobs:
         with:
           name: application-jar
           path: build/libs/*.jar
+          retention-days: 7
 
   deploy:
     name: Deploy to AWS
@@ -102,79 +105,165 @@ jobs:
           pip install ansible boto3 botocore
           ansible-galaxy collection install amazon.aws community.general
 
-      # SSH 키 설정 개선
+      # ⭐ Terraform Cloud에서 EC2 IP 가져오기
+      - name: Get EC2 IP from Terraform Cloud
+        id: terraform_output
+        run: |
+          echo "🔍 Fetching EC2 instance IP from Terraform Cloud..."
+          
+          # Workspace ID 가져오기
+          WORKSPACE_ID=$(curl -s \
+            --header "Authorization: Bearer ${{ secrets.TF_API_TOKEN }}" \
+            --header "Content-Type: application/vnd.api+json" \
+            "https://app.terraform.io/api/v2/organizations/${{ env.TF_CLOUD_ORGANIZATION }}/workspaces/${{ env.TF_WORKSPACE }}" \
+            | jq -r '.data.id')
+          
+          echo "Workspace ID: $WORKSPACE_ID"
+          
+          if [ -z "$WORKSPACE_ID" ] || [ "$WORKSPACE_ID" == "null" ]; then
+            echo "❌ Failed to get Workspace ID"
+            echo "Please check:"
+            echo "  - Organization name: ${{ env.TF_CLOUD_ORGANIZATION }}"
+            echo "  - Workspace name: ${{ env.TF_WORKSPACE }}"
+            echo "  - TF_API_TOKEN is valid"
+            exit 1
+          fi
+          
+          # 최신 state version 가져오기
+          STATE_VERSION_ID=$(curl -s \
+            --header "Authorization: Bearer ${{ secrets.TF_API_TOKEN }}" \
+            --header "Content-Type: application/vnd.api+json" \
+            "https://app.terraform.io/api/v2/workspaces/$WORKSPACE_ID/current-state-version" \
+            | jq -r '.data.id')
+          
+          echo "State Version ID: $STATE_VERSION_ID"
+          
+          if [ -z "$STATE_VERSION_ID" ] || [ "$STATE_VERSION_ID" == "null" ]; then
+            echo "❌ No state version found. Has Terraform been applied?"
+            exit 1
+          fi
+          
+          # Outputs 가져오기
+          OUTPUTS=$(curl -s \
+            --header "Authorization: Bearer ${{ secrets.TF_API_TOKEN }}" \
+            --header "Content-Type: application/vnd.api+json" \
+            "https://app.terraform.io/api/v2/state-versions/$STATE_VERSION_ID/outputs")
+          
+          echo "Raw outputs:"
+          echo "$OUTPUTS" | jq '.'
+          
+          # instance_public_ip output 추출
+          EC2_IP=$(echo "$OUTPUTS" | jq -r '.data[] | select(.attributes.name=="instance_public_ip") | .attributes.value')
+          
+          if [ -z "$EC2_IP" ] || [ "$EC2_IP" == "null" ]; then
+            echo "❌ Failed to get instance_public_ip from Terraform outputs"
+            echo "Available outputs:"
+            echo "$OUTPUTS" | jq -r '.data[].attributes.name'
+            exit 1
+          fi
+          
+          echo "ip=$EC2_IP" >> $GITHUB_OUTPUT
+          echo "✅ EC2 Instance IP: $EC2_IP"
+
+      # SSH 키 설정
       - name: Setup SSH Key
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/private_key.pem
+          
+          # heredoc 방식으로 키 저장
+          cat > ~/.ssh/private_key.pem <<'EOFKEY'
+          ${{ secrets.SSH_PRIVATE_KEY }}
+          EOFKEY
+          
           chmod 600 ~/.ssh/private_key.pem
-          # SSH 에이전트 시작 및 키 추가
-          eval "$(ssh-agent -s)"
-          ssh-add ~/.ssh/private_key.pem
-
-      # EC2 IP 먼저 가져오기
-      - name: Get EC2 instance IP
-        id: ec2_ip
-        run: |
-          EC2_IP=$(aws ec2 describe-instances \
-            --region ${{ env.AWS_REGION }} \
-            --filters \
-              "Name=tag:ManagedBy,Values=Terraform" \
-              "Name=instance-state-name,Values=running" \
-            --query 'Reservations[0].Instances[0].PublicIpAddress' \
-            --output text)
-          echo "ip=$EC2_IP" >> $GITHUB_OUTPUT
-          echo "EC2 Instance IP: $EC2_IP"
+          
+          # 키 검증
+          echo "Validating SSH key..."
+          if ssh-keygen -y -f ~/.ssh/private_key.pem > /dev/null 2>&1; then
+            echo "✅ SSH key is valid"
+          else
+            echo "❌ Invalid SSH key format!"
+            echo "First line: $(head -n 1 ~/.ssh/private_key.pem)"
+            echo "Last line: $(tail -n 1 ~/.ssh/private_key.pem)"
+            exit 1
+          fi
 
       # SSH 연결 테스트
-      - name: Test SSH connection
+      - name: Test SSH Connection
         run: |
-          echo "Testing SSH connection to ${{ steps.ec2_ip.outputs.ip }}..."
+          echo "Testing SSH connection to ${{ steps.terraform_output.outputs.ip }}..."
+          
+          # known_hosts에 추가
+          ssh-keyscan -H ${{ steps.terraform_output.outputs.ip }} >> ~/.ssh/known_hosts 2>/dev/null
+          
+          # SSH 연결 시도
           for i in {1..10}; do
             if ssh -i ~/.ssh/private_key.pem \
                    -o StrictHostKeyChecking=no \
                    -o UserKnownHostsFile=/dev/null \
                    -o ConnectTimeout=10 \
-                   ec2-user@${{ steps.ec2_ip.outputs.ip }} "echo 'SSH OK'"; then
+                   ec2-user@${{ steps.terraform_output.outputs.ip }} "echo 'SSH OK'"; then
               echo "✅ SSH connection successful!"
               exit 0
             fi
             echo "⏳ Attempt $i/10 failed, waiting 10 seconds..."
             sleep 10
           done
+          
           echo "❌ SSH connection failed after 10 attempts"
           exit 1
 
-      # 간단한 인벤토리 생성 (동적 인벤토리 대신)
-      - name: Create static inventory
+      # Ansible 인벤토리 생성 (동적 인벤토리 대신 간단하게)
+      - name: Create Ansible Inventory
         run: |
           cat > inventory.ini <<EOF
           [webservers]
-          ${{ steps.ec2_ip.outputs.ip }}
-
+          ${{ steps.terraform_output.outputs.ip }}
+          
           [webservers:vars]
           ansible_user=ec2-user
           ansible_ssh_private_key_file=~/.ssh/private_key.pem
           ansible_ssh_common_args='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
           ansible_python_interpreter=/usr/bin/python3
           EOF
-          echo "Inventory file:"
+          
+          echo "Generated inventory:"
           cat inventory.ini
 
-      - name: Test Ansible connectivity
+      # Ansible connectivity 테스트
+      - name: Test Ansible Connectivity
         run: |
+          echo "Testing Ansible connectivity..."
           ansible all -i inventory.ini -m ping -vv
 
-      - name: Run Ansible playbook
+      # Ansible playbook 실행
+      - name: Run Ansible Playbook
+        env:
+          ANSIBLE_HOST_KEY_CHECKING: 'False'
         run: |
           JAR_FILE=$(ls build/libs/*.jar)
           echo "Deploying JAR: $JAR_FILE"
-
+          
           ansible-playbook \
             -i inventory.ini \
             ansible/playbooks/deploy.yml \
             -e "jar_file=$JAR_FILE" \
             -vv
+
+      - name: Deployment Summary
+        if: success()
+        run: |
+          echo "## 🎉 Deployment Successful!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📊 Deployment Details" >> $GITHUB_STEP_SUMMARY
+          echo "- **Instance IP**: ${{ steps.terraform_output.outputs.ip }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Application URL**: http://${{ steps.terraform_output.outputs.ip }}:8080" >> $GITHUB_STEP_SUMMARY
+          echo "- **Region**: ${{ env.AWS_REGION }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Deployed JAR**: $(basename $(ls build/libs/*.jar))" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔗 Resources" >> $GITHUB_STEP_SUMMARY
+          echo "- [Terraform Cloud Workspace](https://app.terraform.io/app/${{ env.TF_CLOUD_ORGANIZATION }}/workspaces/${{ env.TF_WORKSPACE }})" >> $GITHUB_STEP_SUMMARY
+          echo "- [AWS EC2 Console](https://ap-northeast-2.console.aws.amazon.com/ec2/v2/home?region=ap-northeast-2#Instances:)" >> $GITHUB_STEP_SUMMARY
 
       - name: Cleanup
         if: always()
