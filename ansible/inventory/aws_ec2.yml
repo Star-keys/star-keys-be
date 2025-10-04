@@ -1,0 +1,13 @@
+plugin: aws_ec2
+regions:
+  - ap-northeast-2
+
+filters:
+  tag:Application: starkeys-backend
+  instance-state-name: running
+
+hostnames:
+  - ip-address
+
+compose:
+  ansible_user: "'ec2-user'"

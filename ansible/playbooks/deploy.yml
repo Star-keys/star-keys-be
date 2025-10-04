@@ -1,0 +1,68 @@
+---
+- name: Deploy Star Keys Backend Application
+  hosts: all
+  become: yes
+  vars:
+    app_name: star-keys-be
+    app_dir: /opt/starkeys
+    app_user: starkeys
+    service_name: starkeys-backend
+
+  tasks:
+    - name: Ensure app directory exists
+      file:
+        path: "{{ app_dir }}"
+        state: directory
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+        mode: '0755'
+
+    - name: Stop existing application
+      systemd:
+        name: "{{ service_name }}"
+        state: stopped
+      ignore_errors: yes
+
+    - name: Copy JAR file to server
+      copy:
+        src: "{{ jar_file }}"
+        dest: "{{ app_dir }}/application.jar"
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+        mode: '0755'
+
+    - name: Create systemd service file
+      template:
+        src: ../templates/starkeys-backend.service.j2
+        dest: /etc/systemd/system/{{ service_name }}.service
+        mode: '0644'
+
+    - name: Reload systemd daemon
+      systemd:
+        daemon_reload: yes
+
+    - name: Start application
+      systemd:
+        name: "{{ service_name }}"
+        state: started
+        enabled: yes
+
+    - name: Wait for application to start
+      wait_for:
+        port: 8080
+        delay: 5
+        timeout: 60
+
+    - name: Check application health
+      uri:
+        url: "http://localhost:8080/api/health"
+        status_code: 200
+      retries: 3
+      delay: 10
+      register: health_check
+      ignore_errors: yes
+
+    - name: Display deployment status
+      debug:
+        msg: "Application deployed successfully!"
+      when: health_check is succeeded

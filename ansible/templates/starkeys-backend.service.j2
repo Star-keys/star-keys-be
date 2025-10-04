@@ -1,0 +1,26 @@
+[Unit]
+Description=Star Keys Backend Application
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User={{ app_user }}
+Group={{ app_user }}
+WorkingDirectory={{ app_dir }}
+
+Environment="SPRING_PROFILES_ACTIVE=prod"
+Environment="DB_URL=jdbc:postgresql://localhost:5432/starkeys"
+Environment="DB_USERNAME=starkeys"
+Environment="DB_PASSWORD=secret"
+
+ExecStart=/usr/bin/java -jar {{ app_dir }}/application.jar
+
+Restart=always
+RestartSec=10
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier={{ service_name }}
+
+[Install]
+WantedBy=multi-user.target
