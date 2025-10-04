@@ -1,0 +1,195 @@
+name: Deploy to EC2
+
+on:
+  workflow_call:
+    inputs:
+      artifact-name:
+        required: true
+        type: string
+      ec2-user:
+        required: false
+        type: string
+        default: 'ec2-user'
+      app-port:
+        required: false
+        type: string
+        default: '8080'
+    secrets:
+      ssh-private-key:
+        required: true
+      ec2-host:
+        required: true
+      db-url:
+        required: true
+      db-username:
+        required: true
+      db-password:
+        required: true
+      mongo-uri:
+        required: true
+      es-uris:
+        required: true
+      es-username:
+        required: true
+      es-password:
+        required: true
+
+jobs:
+  deploy:
+    name: Deploy Application
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download JAR artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: ./
+
+      - name: Setup SSH Key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.ssh-private-key }}" > ~/.ssh/deploy_key.pem
+          chmod 600 ~/.ssh/deploy_key.pem
+          ssh-keyscan -H ${{ secrets.ec2-host }} >> ~/.ssh/known_hosts
+
+      - name: Deploy to EC2
+        env:
+          EC2_USER: ${{ inputs.ec2-user }}
+          EC2_HOST: ${{ secrets.ec2-host }}
+          DB_URL: ${{ secrets.db-url }}
+          DB_USERNAME: ${{ secrets.db-username }}
+          DB_PASSWORD: ${{ secrets.db-password }}
+          MONGO_URI: ${{ secrets.mongo-uri }}
+          ES_URIS: ${{ secrets.es-uris }}
+          ES_USERNAME: ${{ secrets.es-username }}
+          ES_PASSWORD: ${{ secrets.es-password }}
+        run: |
+          JAR_FILE=$(ls *.jar)
+          echo "Deploying $JAR_FILE to EC2..."
+
+          # Create application directory on EC2
+          ssh -i ~/.ssh/deploy_key.pem \
+              -o StrictHostKeyChecking=no \
+              ${EC2_USER}@${EC2_HOST} \
+              "sudo mkdir -p /opt/starkeys && sudo chown ${EC2_USER}:${EC2_USER} /opt/starkeys"
+
+          # Copy JAR to EC2
+          scp -i ~/.ssh/deploy_key.pem \
+              -o StrictHostKeyChecking=no \
+              $JAR_FILE \
+              ${EC2_USER}@${EC2_HOST}:/opt/starkeys/app.jar
+
+          # Create systemd service and deploy
+          ssh -i ~/.ssh/deploy_key.pem \
+              -o StrictHostKeyChecking=no \
+              ${EC2_USER}@${EC2_HOST} << ENDSSH
+            # Create systemd service file
+            sudo tee /etc/systemd/system/starkeys.service > /dev/null <<EOF
+          [Unit]
+          Description=Star Keys Backend Application
+          After=network.target
+
+          [Service]
+          Type=simple
+          User=${EC2_USER}
+          WorkingDirectory=/opt/starkeys
+          Environment="DB_URL=${DB_URL}"
+          Environment="DB_USERNAME=${DB_USERNAME}"
+          Environment="DB_PASSWORD=${DB_PASSWORD}"
+          Environment="MONGO_URI=${MONGO_URI}"
+          Environment="ES_URIS=${ES_URIS}"
+          Environment="ES_USERNAME=${ES_USERNAME}"
+          Environment="ES_PASSWORD=${ES_PASSWORD}"
+          ExecStart=/usr/bin/java -jar /opt/starkeys/app.jar --spring.profiles.active=prod
+          Restart=on-failure
+          RestartSec=10
+          StandardOutput=journal
+          StandardError=journal
+          SyslogIdentifier=starkeys
+
+          [Install]
+          WantedBy=multi-user.target
+          EOF
+
+            # Reload systemd and restart service
+            sudo systemctl daemon-reload
+            sudo systemctl enable starkeys
+            sudo systemctl restart starkeys
+
+            # Wait for application to start
+            echo "Waiting for application to start..."
+            sleep 10
+
+            # Check service status
+            if sudo systemctl is-active --quiet starkeys; then
+              echo "✅ Application started successfully!"
+              sudo systemctl status starkeys --no-pager
+              echo ""
+              echo "📋 Recent logs:"
+              sudo journalctl -u starkeys -n 30 --no-pager
+            else
+              echo "❌ Failed to start application!"
+              sudo systemctl status starkeys --no-pager
+              echo ""
+              echo "📋 Error logs:"
+              sudo journalctl -u starkeys -n 50 --no-pager
+              exit 1
+            fi
+          ENDSSH
+
+      - name: Health Check
+        env:
+          EC2_HOST: ${{ secrets.ec2-host }}
+          APP_PORT: ${{ inputs.app-port }}
+        run: |
+          echo "Performing health check..."
+          MAX_RETRIES=6
+          RETRY_COUNT=0
+
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            if curl -f -s http://${EC2_HOST}:${APP_PORT}/actuator/health > /dev/null 2>&1; then
+              echo "✅ Health check passed!"
+              curl -s http://${EC2_HOST}:${APP_PORT}/actuator/health | jq .
+              exit 0
+            fi
+
+            RETRY_COUNT=$((RETRY_COUNT + 1))
+            echo "Health check failed (attempt $RETRY_COUNT/$MAX_RETRIES). Retrying in 5 seconds..."
+            sleep 5
+          done
+
+          echo "⚠️  Health check failed after $MAX_RETRIES attempts"
+          echo "Application may still be starting up. Check manually: http://${EC2_HOST}:${APP_PORT}/actuator/health"
+          exit 0
+
+      - name: Deployment Summary
+        if: success()
+        env:
+          EC2_HOST: ${{ secrets.ec2-host }}
+          APP_PORT: ${{ inputs.app-port }}
+        run: |
+          echo "## 🚀 Deployment Successful!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 Deployment Details" >> $GITHUB_STEP_SUMMARY
+          echo "- **Host**: ${EC2_HOST}" >> $GITHUB_STEP_SUMMARY
+          echo "- **User**: ${{ inputs.ec2-user }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Application URL**: http://${EC2_HOST}:${APP_PORT}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Health Check**: http://${EC2_HOST}:${APP_PORT}/actuator/health" >> $GITHUB_STEP_SUMMARY
+          echo "- **Deployed JAR**: $(ls *.jar)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔧 Service Management Commands" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "# Check status" >> $GITHUB_STEP_SUMMARY
+          echo "ssh ${{ inputs.ec2-user }}@${EC2_HOST} 'sudo systemctl status starkeys'" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# View logs" >> $GITHUB_STEP_SUMMARY
+          echo "ssh ${{ inputs.ec2-user }}@${EC2_HOST} 'sudo journalctl -u starkeys -f'" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# Restart service" >> $GITHUB_STEP_SUMMARY
+          echo "ssh ${{ inputs.ec2-user }}@${EC2_HOST} 'sudo systemctl restart starkeys'" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Cleanup
+        if: always()
+        run: rm -f ~/.ssh/deploy_key.pem
