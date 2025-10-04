@@ -8,9 +8,7 @@ on:
 
 env:
   JAVA_VERSION: '21'
-  AWS_REGION: ap-northeast-2
-  TF_CLOUD_ORGANIZATION: 'star-keys-backend'
-  TF_WORKSPACE: 'star-keys-be'
+  APP_NAME: 'star-keys-be'
 
 jobs:
   test:
@@ -72,201 +70,146 @@ jobs:
           retention-days: 7
 
   deploy:
-    name: Deploy to AWS
+    name: Deploy to EC2
     needs: build
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
       - name: Download JAR artifact
         uses: actions/download-artifact@v4
         with:
           name: application-jar
-          path: build/libs/
+          path: ./
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install Ansible and dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install ansible boto3 botocore
-          ansible-galaxy collection install amazon.aws community.general
-
-      # ⭐ Terraform Cloud에서 EC2 IP 가져오기
-      - name: Get EC2 IP from Terraform Cloud
-        id: terraform_output
-        run: |
-          echo "🔍 Fetching EC2 instance IP from Terraform Cloud..."
-          
-          # Workspace ID 가져오기
-          WORKSPACE_ID=$(curl -s \
-            --header "Authorization: Bearer ${{ secrets.TF_API_TOKEN }}" \
-            --header "Content-Type: application/vnd.api+json" \
-            "https://app.terraform.io/api/v2/organizations/${{ env.TF_CLOUD_ORGANIZATION }}/workspaces/${{ env.TF_WORKSPACE }}" \
-            | jq -r '.data.id')
-          
-          echo "Workspace ID: $WORKSPACE_ID"
-          
-          if [ -z "$WORKSPACE_ID" ] || [ "$WORKSPACE_ID" == "null" ]; then
-            echo "❌ Failed to get Workspace ID"
-            echo "Please check:"
-            echo "  - Organization name: ${{ env.TF_CLOUD_ORGANIZATION }}"
-            echo "  - Workspace name: ${{ env.TF_WORKSPACE }}"
-            echo "  - TF_API_TOKEN is valid"
-            exit 1
-          fi
-          
-          # 최신 state version 가져오기
-          STATE_VERSION_ID=$(curl -s \
-            --header "Authorization: Bearer ${{ secrets.TF_API_TOKEN }}" \
-            --header "Content-Type: application/vnd.api+json" \
-            "https://app.terraform.io/api/v2/workspaces/$WORKSPACE_ID/current-state-version" \
-            | jq -r '.data.id')
-          
-          echo "State Version ID: $STATE_VERSION_ID"
-          
-          if [ -z "$STATE_VERSION_ID" ] || [ "$STATE_VERSION_ID" == "null" ]; then
-            echo "❌ No state version found. Has Terraform been applied?"
-            exit 1
-          fi
-          
-          # Outputs 가져오기
-          OUTPUTS=$(curl -s \
-            --header "Authorization: Bearer ${{ secrets.TF_API_TOKEN }}" \
-            --header "Content-Type: application/vnd.api+json" \
-            "https://app.terraform.io/api/v2/state-versions/$STATE_VERSION_ID/outputs")
-          
-          echo "Raw outputs:"
-          echo "$OUTPUTS" | jq '.'
-          
-          # app_server_public_ip output 추출
-          EC2_IP=$(echo "$OUTPUTS" | jq -r '.data[] | select(.attributes.name=="app_server_public_ip") | .attributes.value')
-          
-          if [ -z "$EC2_IP" ] || [ "$EC2_IP" == "null" ]; then
-            echo "❌ Failed to get app_server_public_ip from Terraform outputs"
-            echo "Available outputs:"
-            echo "$OUTPUTS" | jq -r '.data[].attributes.name'
-            exit 1
-          fi
-          
-          echo "ip=$EC2_IP" >> $GITHUB_OUTPUT
-          echo "✅ EC2 Instance IP: $EC2_IP"
-
-      # SSH 키 설정
       - name: Setup SSH Key
         run: |
           mkdir -p ~/.ssh
-          
-          # heredoc 방식으로 키 저장
-          cat > ~/.ssh/private_key.pem <<'EOFKEY'
-          ${{ secrets.SSH_PRIVATE_KEY }}
-          EOFKEY
-          
-          chmod 600 ~/.ssh/private_key.pem
-          
-          # 키 검증
-          echo "Validating SSH key..."
-          if ssh-keygen -y -f ~/.ssh/private_key.pem > /dev/null 2>&1; then
-            echo "✅ SSH key is valid"
-          else
-            echo "❌ Invalid SSH key format!"
-            echo "First line: $(head -n 1 ~/.ssh/private_key.pem)"
-            echo "Last line: $(tail -n 1 ~/.ssh/private_key.pem)"
-            exit 1
-          fi
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key.pem
+          chmod 600 ~/.ssh/deploy_key.pem
+          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
 
-      # SSH 연결 테스트
-      - name: Test SSH Connection
+      - name: Deploy to EC2
+        env:
+          EC2_USER: ec2-user
+          EC2_HOST: ${{ secrets.EC2_HOST }}
         run: |
-          echo "Testing SSH connection to ${{ steps.terraform_output.outputs.ip }}..."
-          
-          # known_hosts에 추가
-          ssh-keyscan -H ${{ steps.terraform_output.outputs.ip }} >> ~/.ssh/known_hosts 2>/dev/null
-          
-          # SSH 연결 시도
-          for i in {1..10}; do
-            if ssh -i ~/.ssh/private_key.pem \
-                   -o StrictHostKeyChecking=no \
-                   -o UserKnownHostsFile=/dev/null \
-                   -o ConnectTimeout=10 \
-                   ec2-user@${{ steps.terraform_output.outputs.ip }} "echo 'SSH OK'"; then
-              echo "✅ SSH connection successful!"
+          JAR_FILE=$(ls *.jar)
+          echo "Deploying $JAR_FILE to EC2..."
+
+          # Create application directory on EC2
+          ssh -i ~/.ssh/deploy_key.pem \
+              -o StrictHostKeyChecking=no \
+              ${EC2_USER}@${EC2_HOST} \
+              "sudo mkdir -p /opt/starkeys && sudo chown ${EC2_USER}:${EC2_USER} /opt/starkeys"
+
+          # Copy JAR to EC2
+          scp -i ~/.ssh/deploy_key.pem \
+              -o StrictHostKeyChecking=no \
+              $JAR_FILE \
+              ${EC2_USER}@${EC2_HOST}:/opt/starkeys/app.jar
+
+          # Create systemd service and deploy
+          ssh -i ~/.ssh/deploy_key.pem \
+              -o StrictHostKeyChecking=no \
+              ${EC2_USER}@${EC2_HOST} << 'ENDSSH'
+            # Create systemd service file
+            sudo tee /etc/systemd/system/starkeys.service > /dev/null <<EOF
+          [Unit]
+          Description=Star Keys Backend Application
+          After=network.target
+
+          [Service]
+          Type=simple
+          User=ec2-user
+          WorkingDirectory=/opt/starkeys
+          ExecStart=/usr/bin/java -jar /opt/starkeys/app.jar --spring.profiles.active=prod
+          Restart=on-failure
+          RestartSec=10
+          StandardOutput=journal
+          StandardError=journal
+          SyslogIdentifier=starkeys
+
+          [Install]
+          WantedBy=multi-user.target
+          EOF
+
+            # Reload systemd and restart service
+            sudo systemctl daemon-reload
+            sudo systemctl enable starkeys
+            sudo systemctl restart starkeys
+
+            # Wait for application to start
+            echo "Waiting for application to start..."
+            sleep 10
+
+            # Check service status
+            if sudo systemctl is-active --quiet starkeys; then
+              echo "✅ Application started successfully!"
+              sudo systemctl status starkeys --no-pager
+              echo ""
+              echo "📋 Recent logs:"
+              sudo journalctl -u starkeys -n 30 --no-pager
+            else
+              echo "❌ Failed to start application!"
+              sudo systemctl status starkeys --no-pager
+              echo ""
+              echo "📋 Error logs:"
+              sudo journalctl -u starkeys -n 50 --no-pager
+              exit 1
+            fi
+          ENDSSH
+
+      - name: Health Check
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+        run: |
+          echo "Performing health check..."
+          MAX_RETRIES=6
+          RETRY_COUNT=0
+
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            if curl -f -s http://${EC2_HOST}:8080/actuator/health > /dev/null 2>&1; then
+              echo "✅ Health check passed!"
+              curl -s http://${EC2_HOST}:8080/actuator/health | jq .
               exit 0
             fi
-            echo "⏳ Attempt $i/10 failed, waiting 10 seconds..."
-            sleep 10
+
+            RETRY_COUNT=$((RETRY_COUNT + 1))
+            echo "Health check failed (attempt $RETRY_COUNT/$MAX_RETRIES). Retrying in 5 seconds..."
+            sleep 5
           done
-          
-          echo "❌ SSH connection failed after 10 attempts"
-          exit 1
 
-      # Ansible 인벤토리 생성 (동적 인벤토리 대신 간단하게)
-      - name: Create Ansible Inventory
-        run: |
-          cat > inventory.ini <<EOF
-          [webservers]
-          ${{ steps.terraform_output.outputs.ip }}
-          
-          [webservers:vars]
-          ansible_user=ec2-user
-          ansible_ssh_private_key_file=~/.ssh/private_key.pem
-          ansible_ssh_common_args='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
-          ansible_python_interpreter=/usr/bin/python3
-          EOF
-          
-          echo "Generated inventory:"
-          cat inventory.ini
-
-      # Ansible connectivity 테스트
-      - name: Test Ansible Connectivity
-        run: |
-          echo "Testing Ansible connectivity..."
-          ansible all -i inventory.ini -m ping -vv
-
-      # Ansible playbook 실행
-      - name: Run Ansible Playbook
-        env:
-          ANSIBLE_HOST_KEY_CHECKING: 'False'
-        run: |
-          JAR_FILE=$(ls build/libs/*.jar)
-          echo "Deploying JAR: $JAR_FILE"
-          
-          ansible-playbook \
-            -i inventory.ini \
-            ansible/playbooks/deploy.yml \
-            -e "jar_file=$JAR_FILE" \
-            -vv
+          echo "⚠️  Health check failed after $MAX_RETRIES attempts"
+          echo "Application may still be starting up. Check manually: http://${EC2_HOST}:8080/actuator/health"
+          exit 0
 
       - name: Deployment Summary
         if: success()
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
         run: |
-          echo "## 🎉 Deployment Successful!" >> $GITHUB_STEP_SUMMARY
+          echo "## 🚀 Deployment Successful!" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 📊 Deployment Details" >> $GITHUB_STEP_SUMMARY
-          echo "- **Instance IP**: ${{ steps.terraform_output.outputs.ip }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Application URL**: http://${{ steps.terraform_output.outputs.ip }}:8080" >> $GITHUB_STEP_SUMMARY
-          echo "- **Region**: ${{ env.AWS_REGION }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Deployed JAR**: $(basename $(ls build/libs/*.jar))" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 Deployment Details" >> $GITHUB_STEP_SUMMARY
+          echo "- **Host**: ${EC2_HOST}" >> $GITHUB_STEP_SUMMARY
+          echo "- **User**: ec2-user" >> $GITHUB_STEP_SUMMARY
+          echo "- **Application URL**: http://${EC2_HOST}:8080" >> $GITHUB_STEP_SUMMARY
+          echo "- **Health Check**: http://${EC2_HOST}:8080/actuator/health" >> $GITHUB_STEP_SUMMARY
+          echo "- **Deployed JAR**: $(ls *.jar)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 🔗 Resources" >> $GITHUB_STEP_SUMMARY
-          echo "- [Terraform Cloud Workspace](https://app.terraform.io/app/${{ env.TF_CLOUD_ORGANIZATION }}/workspaces/${{ env.TF_WORKSPACE }})" >> $GITHUB_STEP_SUMMARY
-          echo "- [AWS EC2 Console](https://ap-northeast-2.console.aws.amazon.com/ec2/v2/home?region=ap-northeast-2#Instances:)" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔧 Service Management Commands" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "# Check status" >> $GITHUB_STEP_SUMMARY
+          echo "ssh ec2-user@${EC2_HOST} 'sudo systemctl status starkeys'" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# View logs" >> $GITHUB_STEP_SUMMARY
+          echo "ssh ec2-user@${EC2_HOST} 'sudo journalctl -u starkeys -f'" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# Restart service" >> $GITHUB_STEP_SUMMARY
+          echo "ssh ec2-user@${EC2_HOST} 'sudo systemctl restart starkeys'" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
 
       - name: Cleanup
         if: always()
-        run: |
-          rm -f ~/.ssh/private_key.pem
-          rm -f inventory.ini
+        run: rm -f ~/.ssh/deploy_key.pem
