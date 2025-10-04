@@ -51,6 +51,28 @@ This is a Spring Boot 3.5.7 backend application built with Java 21 and Gradle. T
   - Spring application name: `star-keys-be`
   - Database configuration will be needed for PostgreSQL connection
 
+## Git Hooks Setup
+
+This repository enforces conventional commit message format. **All contributors must install Git hooks after cloning:**
+
+```bash
+./setup-hooks.sh
+```
+
+### Commit Message Format
+All commits must follow the conventional commit format:
+```
+<type>: <description>
+```
+
+**Valid types**: `init`, `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`, `perf`, `ci`, `build`, `revert`
+
+**Examples**:
+- `feat: add user authentication`
+- `fix: resolve database connection timeout`
+- `docs: update API documentation`
+- `refactor(auth): simplify token validation`
+
 ## Repository Information
 
 - Uses snapshot version of Spring Boot (3.5.7-SNAPSHOT) from `https://repo.spring.io/snapshot`

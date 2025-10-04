@@ -1,0 +1,45 @@
+#!/bin/bash
+
+# Conventional Commit Message Validation Hook
+# Enforces commit message format: <type>: <description>
+# Valid types: init, feat, fix, docs, style, refactor, test, chore, perf, ci, build, revert
+
+commit_msg_file=$1
+commit_msg=$(cat "$commit_msg_file")
+
+# Define the pattern for conventional commits
+pattern="^(init|feat|fix|docs|style|refactor|test|chore|perf|ci|build|revert)(\(.+\))?: .{1,}"
+
+# Check if commit message matches the pattern
+if ! echo "$commit_msg" | grep -qE "$pattern"; then
+    echo "[FATAL] ERROR: Invalid commit message format!"
+    echo ""
+    echo "Commit message must follow the conventional commit format:"
+    echo "  <type>: <description>"
+    echo ""
+    echo "Valid types:"
+    echo "  - init:     Initial commit or setup"
+    echo "  - feat:     New feature"
+    echo "  - fix:      Bug fix"
+    echo "  - docs:     Documentation changes"
+    echo "  - style:    Code style/formatting changes"
+    echo "  - refactor: Code refactoring"
+    echo "  - test:     Adding or updating tests"
+    echo "  - chore:    Maintenance tasks"
+    echo "  - perf:     Performance improvements"
+    echo "  - ci:       CI/CD changes"
+    echo "  - build:    Build system changes"
+    echo "  - revert:   Revert previous commit"
+    echo ""
+    echo "Examples:"
+    echo "  feat: add user authentication"
+    echo "  fix: resolve null pointer exception in login"
+    echo "  docs: update API documentation"
+    echo "  refactor(auth): simplify token validation logic"
+    echo ""
+    echo "Your commit message:"
+    echo "  $commit_msg"
+    exit 1
+fi
+
+exit 0
