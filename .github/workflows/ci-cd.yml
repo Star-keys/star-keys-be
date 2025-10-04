@@ -96,26 +96,41 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install Ansible
+      - name: Install Ansible and dependencies
         run: |
           python -m pip install --upgrade pip
           pip install ansible boto3 botocore
+          ansible-galaxy collection install amazon.aws community.general
 
       - name: Create SSH key file
         run: |
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > private_key.pem
-          chmod 600 private_key.pem
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/private_key.pem
+          chmod 600 ~/.ssh/private_key.pem
+
+      - name: Test EC2 connectivity
+        run: |
+          echo "Testing AWS EC2 dynamic inventory..."
+          ansible-inventory -i ansible/inventory/aws_ec2.yml --list
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ env.AWS_REGION }}
 
       - name: Run Ansible playbook
         env:
           ANSIBLE_HOST_KEY_CHECKING: 'False'
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ env.AWS_REGION }}
         run: |
           ansible-playbook \
             -i ansible/inventory/aws_ec2.yml \
             ansible/playbooks/deploy.yml \
-            --private-key=private_key.pem \
-            -e "jar_file=$(ls build/libs/*.jar)"
+            --private-key=~/.ssh/private_key.pem \
+            -e "jar_file=$(ls build/libs/*.jar)" \
+            -vv
 
       - name: Cleanup
         if: always()
-        run: rm -f private_key.pem
+        run: rm -f ~/.ssh/private_key.pem
