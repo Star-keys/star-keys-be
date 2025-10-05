@@ -93,13 +93,9 @@ jobs:
         env:
           EC2_USER: ec2-user
           EC2_HOST: ${{ secrets.EC2_HOST }}
-          DB_URL: ${{ secrets.DB_URL }}
-          DB_USERNAME: ${{ secrets.DB_USERNAME }}
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
           MONGO_URI: ${{ secrets.MONGO_URI }}
           ES_URIS: ${{ secrets.ES_URIS }}
-          ES_USERNAME: ${{ secrets.ES_USERNAME }}
-          ES_PASSWORD: ${{ secrets.ES_PASSWORD }}
+          ES_API_KEY: ${{ secrets.ES_API_KEY }}
         run: |
           JAR_FILE=$(ls *.jar)
           echo "Deploying $JAR_FILE to EC2..."
@@ -130,13 +126,9 @@ jobs:
           Type=simple
           User=ec2-user
           WorkingDirectory=/opt/starkeys
-          Environment="DB_URL=${DB_URL}"
-          Environment="DB_USERNAME=${DB_USERNAME}"
-          Environment="DB_PASSWORD=${DB_PASSWORD}"
           Environment="MONGO_URI=${MONGO_URI}"
           Environment="ES_URIS=${ES_URIS}"
-          Environment="ES_USERNAME=${ES_USERNAME}"
-          Environment="ES_PASSWORD=${ES_PASSWORD}"
+          Environment="ES_API_KEY=${ES_API_KEY}"
           ExecStart=/usr/bin/java -jar /opt/starkeys/app.jar --spring.profiles.active=prod
           Restart=on-failure
           RestartSec=10
