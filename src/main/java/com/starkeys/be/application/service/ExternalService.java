@@ -13,6 +13,7 @@ import com.starkeys.be.dto.PaperSimple;
 import com.starkeys.be.entity.Paper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
+import org.springframework.data.elasticsearch.ResourceNotFoundException;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -48,7 +49,30 @@ public class ExternalService {
         return ApiResponse.success(paperSimples, meta);
     }
 
-    public record PaperQuery(
+    public ApiResponse<EsPaper> getDetail(String paperId) {
+        Query query = bool(b -> b
+                .must(m -> m
+                        .term(t -> t
+                                .field("_id").value(paperId))
+                )
+        );
+
+        SearchRequest.Builder request = new SearchRequest.Builder()
+                .index("paper")
+                .source(s -> s.fetch(true))
+                .query(query)
+                .size(1)
+                .trackTotalHits(th -> th.enabled(false));
+
+        EsPaper esPaper = esService.search(request.build(), EsPaper.class)
+                .stream()
+                .findFirst()
+                .orElseThrow(() -> new ResourceNotFoundException("paper not found"));
+
+        return ApiResponse.success(esPaper);
+    }
+
+    private record PaperQuery(
             String value
     ) {
         public Query build() {
