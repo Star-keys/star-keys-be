@@ -9,6 +9,7 @@ import com.starkeys.be.common.request.PageRequest;
 import com.starkeys.be.common.response.ApiResponse;
 import com.starkeys.be.common.response.PageMeta;
 import com.starkeys.be.dto.EsPaper;
+import com.starkeys.be.dto.PaperSimple;
 import com.starkeys.be.entity.Paper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -29,8 +30,9 @@ public class ExternalService {
         return ApiResponse.success(result);
     }
 
-    public ApiResponse<Page<EsPaper>> search(String q, PageRequest pageRequest) {
+    public ApiResponse<List<PaperSimple>> search(String q, PageRequest pageRequest) {
         Query query = new PaperQuery(q).build();
+
         SearchRequest.Builder request = new SearchRequest.Builder()
                 .index("paper")
                 .source(s -> s.fetch(true))
@@ -42,7 +44,8 @@ public class ExternalService {
         Page<EsPaper> searched = esService.search(request.build(), EsPaper.class);
         PageMeta meta = new PageMeta(pageRequest.page(), searched.getTotalPages(), searched.getTotalElements());
 
-        return ApiResponse.success(searched, meta);
+        List<PaperSimple> paperSimples = searched.stream().map(PaperSimple::of).toList();
+        return ApiResponse.success(paperSimples, meta);
     }
 
     public record PaperQuery(
