@@ -28,7 +28,7 @@ dependencies {
     runtimeOnly("org.postgresql:postgresql")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 
-    developmentOnly("org.springframework.boot:spring-boot-docker-compose")
+//    developmentOnly("org.springframework.boot:spring-boot-docker-compose")
     runtimeOnly("com.h2database:h2")
 
     // Lombok
@@ -39,6 +39,10 @@ dependencies {
 
     implementation("io.github.openfeign.querydsl:querydsl-jpa:6.11")
     annotationProcessor("io.github.openfeign.querydsl:querydsl-apt:6.11:jakarta")
+
+    // ES
+    implementation("co.elastic.clients:elasticsearch-java")
+    implementation("org.elasticsearch.client:elasticsearch-rest-client")
 }
 
 tasks.withType<Test> {
