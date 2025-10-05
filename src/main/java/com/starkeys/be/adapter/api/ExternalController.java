@@ -3,14 +3,9 @@ package com.starkeys.be.adapter.api;
 import com.starkeys.be.application.service.ExternalService;
 import com.starkeys.be.common.request.PageRequest;
 import com.starkeys.be.common.response.ApiResponse;
-import com.starkeys.be.dto.EsPaper;
 import com.starkeys.be.entity.Paper;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.Page;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
@@ -33,8 +28,8 @@ public class ExternalController {
     }
 
     //  상세페이지
-    @GetMapping("/paper")
-    public ApiResponse getPaper() {
-        return new ApiResponse<>(true, "success", null, null);
+    @GetMapping("/paper/{paperId}")
+    public ApiResponse getPaper(@PathVariable String paperId) {
+        return externalService.getDetail(paperId);
     }
 }
